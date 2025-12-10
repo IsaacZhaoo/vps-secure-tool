@@ -1,4 +1,4 @@
-# vps-secure-tools · VPS 运维 + 安全加固工具箱
+# vps-secure-tool · VPS 运维 + 安全加固工具箱
 
 [English Version / 英文版](./README-en.md)
 
