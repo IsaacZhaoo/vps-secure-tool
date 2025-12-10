@@ -1,4 +1,4 @@
-# vps-secure-tools
+# vps-secure-tool
 
 一个面向个人开发者的 **VPS（Virtual Private Server 虚拟专用服务器） 运维 + 安全加固工具箱**。  
 通过交互式菜单，帮你完成常见的服务器安全与日常运维操作，不用死记硬背命令。
