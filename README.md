@@ -16,7 +16,7 @@
 > ⚠️ For first-time use, please review the script source before trusting it.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/IsaacZhaoo/vps-secure-tool/main/vps_secure_tool.sh | sudo bash
+sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/IsaacZhaoo/vps-secure-tool/main/vps_secure_tool.sh)"
 ```
 
 ---
