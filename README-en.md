@@ -1,4 +1,4 @@
-# vps-secure-tools · VPS Ops & Security Toolbox
+# vps-secure-tool · VPS Ops & Security Toolbox
 
 [中文版 / Chinese Version](./README-zh.md)
 
@@ -73,7 +73,7 @@ sudo ./vps_secure_tool.sh
 - Privileges:  
   - Must be run as `root` or a user with `sudo` privileges
 - Dependencies:  
-  - Required: `bash`, `sshd` (OpenSSH server), common system tools (`ip`, `ss` or `netstat`, `free`, `df`, `ps`, etc.)  
+  - Required: `bash`, `sshd` (OpenSSH server), common system tool (`ip`, `ss` or `netstat`, `free`, `df`, `ps`, etc.)  
   - Optional: `ufw`, `fail2ban` (can be installed automatically on Debian / Ubuntu)
 
 ---
