@@ -407,6 +407,84 @@ create_user_secure() {
     echo "authorized_keys: $auth_file"
 }
 
+# 新增：安全删除用户功能
+delete_user_safe() {
+    say "${GREEN}== 删除系统用户（带安全检查） ==${RESET}" \
+        "${GREEN}== Delete system user (with safety checks) ==${RESET}"
+
+    local username
+    ask "请输入要删除的用户名： " \
+        "Enter username to delete: " username
+
+    if [ -z "$username" ]; then
+        say "${RED}[错误] 用户名不能为空。${RESET}" \
+            "${RED}[ERROR] Username cannot be empty.${RESET}"
+        return
+    fi
+
+    # 禁止删除 root 和当前登录用户
+    if [ "$username" = "root" ] || [ "$username" = "$USER" ]; then
+        say "${RED}[错误] 不允许删除 root 或当前登录用户：$username${RESET}" \
+            "${RED}[ERROR] Refusing to delete root or current user: $username${RESET}"
+        return
+    fi
+
+    # 检查用户是否存在
+    if ! id -u "$username" >/dev/null 2>&1; then
+        say "${RED}[错误] 用户不存在：$username${RESET}" \
+            "${RED}[ERROR] User does not exist: $username${RESET}"
+        return
+    fi
+
+    say "即将删除的用户信息：" "User info to be deleted:"
+    id "$username"
+    getent passwd "$username" || true
+    echo
+
+    # 检查是否有进程
+    if ps -u "$username" >/dev/null 2>&1; then
+        say "${YELLOW}[提示] 该用户当前有正在运行的进程：${RESET}" \
+            "${YELLOW}[Note] This user currently has running processes:${RESET}"
+        ps -u "$username" || true
+        echo
+        say "建议先关闭这些进程或会话（例如：loginctl terminate-user $username）。" \
+            "It is recommended to stop these processes/sessions first (e.g. loginctl terminate-user $username)."
+        echo
+    fi
+
+    # 是否删除 home 目录
+    local del_home
+    ask "是否同时删除该用户的 home 目录？[y/N]: " \
+        "Also delete this user's home directory? [y/N]: " del_home
+
+    # 最终确认
+    local confirm
+    ask "确认要删除用户 $username？此操作不可撤销。[y/N]: " \
+        "Are you sure you want to delete user $username? This cannot be undone. [y/N]: " confirm
+
+    case "$confirm" in
+        y|Y)
+            if [[ "$del_home" =~ ^[yY]$ ]]; then
+                userdel -r "$username"
+            else
+                userdel "$username"
+            fi
+
+            if [ $? -eq 0 ]; then
+                say "${GREEN}[完成] 用户 $username 已删除。${RESET}" \
+                    "${GREEN}[Done] User $username has been deleted.${RESET}"
+            else
+                say "${RED}[错误] 删除用户 $username 失败，请检查日志或手动执行 userdel。${RESET}" \
+                    "${RED}[ERROR] Failed to delete user $username. Please check logs or run userdel manually.${RESET}"
+            fi
+            ;;
+        *)
+            say "${YELLOW}[取消] 已取消删除用户操作。${RESET}" \
+                "${YELLOW}[Canceled] User deletion aborted.${RESET}"
+            ;;
+    esac
+}
+
 lock_root_account() {
   say "${GREEN}== 锁定 root 账户密码（可选） ==${RESET}" \
       "${GREEN}== Lock root account password (optional) ==${RESET}"
@@ -470,6 +548,8 @@ harden_ssh_interactive() {
       "  1) Disable SSH login as root (PermitRootLogin no)"
   say "  2) 全局关闭 PasswordAuthentication（仅保留公钥登录）" \
       "  2) Set PasswordAuthentication no (public key only)"
+  say "  3) 写入 /etc/ssh/sshd_config.d/99-local.conf 强制覆盖 PasswordAuthentication no" \
+      "  3) Write /etc/ssh/sshd_config.d/99-local.conf to enforce PasswordAuthentication no"
   echo
   say "注意：" "Note:"
   say "  - 如需为 fallback 用户保留密码登录，应在此之后手动配置 Match User。" \
@@ -477,40 +557,69 @@ harden_ssh_interactive() {
   echo
 
   local ans
-  ask "确认继续修改 /etc/ssh/sshd_config ？[y/N]: " \
-      "Continue modifying /etc/ssh/sshd_config? [y/N]: " ans
+  ask "确认继续修改 SSH 配置？[y/N]: " \
+      "Continue modifying SSH config? [y/N]: " ans
   case "$ans" in
     y|Y) ;;
     *)
-      say "${YELLOW}[跳过] 未对 sshd_config 做任何变更。${RESET}" \
-          "${YELLOW}[Skip] No changes made to sshd_config.${RESET}"
+      say "${YELLOW}[跳过] 未对 SSH 配置做任何变更。${RESET}" \
+          "${YELLOW}[Skip] No changes made to SSH config.${RESET}"
       return
       ;;
   esac
 
-  cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak.$(date +%Y%m%d%H%M%S)
-  say "[备份] 已备份为 /etc/ssh/sshd_config.bak.<timestamp>" \
-      "[Backup] Original sshd_config saved as /etc/ssh/sshd_config.bak.<timestamp>"
+  local sshd_main="/etc/ssh/sshd_config"
+  local sshd_d_dir="/etc/ssh/sshd_config.d"
+  mkdir -p "$sshd_d_dir"
+
+  cp "$sshd_main" "${sshd_main}.bak.$(date +%Y%m%d%H%M%S)"
+  say "[备份] 已备份为 ${sshd_main}.bak.<timestamp>" \
+      "[Backup] Original sshd_config saved as ${sshd_main}.bak.<timestamp>"
 
   # 使用 sed 修改或追加配置
-  if grep -qi "^\s*PermitRootLogin" /etc/ssh/sshd_config; then
-    sed -ri 's/^\s*#?\s*PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config
+  if grep -qi "^\s*PermitRootLogin" "$sshd_main"; then
+    sed -ri 's/^\s*#?\s*PermitRootLogin.*/PermitRootLogin no/' "$sshd_main"
   else
-    echo "PermitRootLogin no" >> /etc/ssh/sshd_config
+    echo "PermitRootLogin no" >> "$sshd_main"
   fi
 
-  if grep -qi "^\s*PasswordAuthentication" /etc/ssh/sshd_config; then
-    sed -ri 's/^\s*#?\s*PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
+  if grep -qi "^\s*PasswordAuthentication" "$sshd_main"; then
+    sed -ri 's/^\s*#?\s*PasswordAuthentication.*/PasswordAuthentication no/' "$sshd_main"
   else
-    echo "PasswordAuthentication no" >> /etc/ssh/sshd_config
+    echo "PasswordAuthentication no" >> "$sshd_main"
   fi
 
-  # 可选：关闭交互式密码
-  if grep -qi "^\s*ChallengeResponseAuthentication" /etc/ssh/sshd_config; then
-    sed -ri 's/^\s*#?\s*ChallengeResponseAuthentication.*/ChallengeResponseAuthentication no/' /etc/ssh/sshd_config
+  # 可选：关闭 ChallengeResponseAuthentication
+  if grep -qi "^\s*ChallengeResponseAuthentication" "$sshd_main"; then
+    sed -ri 's/^\s*#?\s*ChallengeResponseAuthentication.*/ChallengeResponseAuthentication no/' "$sshd_main"
   else
-    echo "ChallengeResponseAuthentication no" >> /etc/ssh/sshd_config
+    echo "ChallengeResponseAuthentication no" >> "$sshd_main"
   fi
+
+  # 确保包含 .d 目录
+  if ! grep -qi '^[[:space:]]*Include[[:space:]]\+/etc/ssh/sshd_config.d/\*' "$sshd_main"; then
+    echo "Include /etc/ssh/sshd_config.d/*.conf" >> "$sshd_main"
+  fi
+
+  # 提示可能存在 PasswordAuthentication yes 的文件
+  local pa_conflicts
+  pa_conflicts=$(grep -R "^[[:space:]]*PasswordAuthentication[[:space:]]\+yes" /etc/ssh/sshd_config /etc/ssh/sshd_config.d 2>/dev/null || true)
+  if [ -n "$pa_conflicts" ]; then
+    say "${YELLOW}[提示] 检测到以下 PasswordAuthentication yes 配置，将由 99-local.conf 覆盖：${RESET}" \
+        "${YELLOW}[Note] Detected the following PasswordAuthentication yes entries; they will be overridden by 99-local.conf:${RESET}"
+    echo "$pa_conflicts"
+    echo
+  fi
+
+  # 写入 99-local.conf 强制覆盖
+  local local_override="${sshd_d_dir}/99-local.conf"
+  cat > "$local_override" <<'EOF'
+# Local SSH auth overrides managed by vps_secure_tool.sh
+PasswordAuthentication no
+ChallengeResponseAuthentication no
+PubkeyAuthentication yes
+EOF
+  chmod 644 "$local_override"
 
   if command -v sshd >/dev/null 2>&1; then
     if sshd -t; then
@@ -604,11 +713,13 @@ change_ssh_port() {
   fi
 }
 
+# 合并：防火墙检查 + 一键基础规则
 check_firewall() {
-  say "${GREEN}== 防火墙状态检查 ==${RESET}" \
-      "${GREEN}== Firewall status check ==${RESET}"
+  say "${GREEN}== 防火墙 UFW 检查与基础配置 ==${RESET}" \
+      "${GREEN}== Firewall (UFW) check & basic setup ==${RESET}"
+
   if command -v ufw >/dev/null 2>&1; then
-    say "[UFW 状态]:" "[UFW status]:"
+    say "[当前 UFW 状态]:" "[Current UFW status]:"
     ufw status verbose || true
   else
     say "未检测到 ufw。" "UFW not found."
@@ -620,6 +731,52 @@ check_firewall() {
     firewall-cmd --state 2>/dev/null || true
     firewall-cmd --list-all 2>/dev/null || true
   fi
+
+  # UFW 检查 + 如未启用则一键基础规则
+  if ! command -v ufw >/dev/null 2>&1; then
+    if is_debian_like; then
+      local ans
+      ask "检测到系统未安装 ufw，是否现在安装并配置基础规则？[y/N]: " \
+          "UFW is not installed. Install and apply basic rules now? [y/N]: " ans
+      case "$ans" in
+        y|Y)
+          apt update
+          apt install -y ufw
+          ;;
+        *)
+          say "${YELLOW}[跳过] 未安装 ufw。${RESET}" \
+              "${YELLOW}[Skip] UFW not installed.${RESET}"
+          return
+          ;;
+      esac
+    else
+      say "${YELLOW}[提示] 当前发行版不支持自动安装 ufw，请手动配置防火墙。${RESET}" \
+          "${YELLOW}[Note] This distro is not supported for automatic UFW install; configure firewall manually.${RESET}"
+      return
+    fi
+  fi
+
+  # 再次获取 UFW 状态
+  local status_line
+  status_line=$(ufw status 2>/dev/null | head -n 1 || true)
+  if echo "$status_line" | grep -qi "Status: active"; then
+    say "${GREEN}[通过] UFW 已启用。上方已显示当前规则。如需修改，可手动调整或重新运行本选项。${RESET}" \
+        "${GREEN}[OK] UFW is already active. Current rules are shown above. Adjust manually as needed.${RESET}"
+    return
+  fi
+
+  local ans2
+  ask "检测到 UFW 未启用，是否应用基础规则（SSH/80/443 + 默认 deny incoming）并启用？[y/N]: " \
+      "UFW is inactive. Apply basic rules (SSH/80/443 + default deny incoming) and enable now? [y/N]: " ans2
+  case "$ans2" in
+    y|Y)
+      basic_firewall_setup_ufw
+      ;;
+    *)
+      say "${YELLOW}[跳过] 未对 UFW 做任何更改。${RESET}" \
+          "${YELLOW}[Skip] UFW was not modified.${RESET}"
+      ;;
+  esac
 }
 
 basic_firewall_setup_ufw() {
@@ -669,22 +826,24 @@ basic_firewall_setup_ufw() {
   ufw status verbose
 }
 
-check_fail2ban() {
-  say "${GREEN}== fail2ban 状态检查 ==${RESET}" \
-      "${GREEN}== fail2ban status check ==${RESET}"
-  if ! command -v fail2ban-client >/dev/null 2>&1; then
-    say "未检测到 fail2ban。" "fail2ban not found."
-    return
+# fail2ban 启动帮助函数（带等待）
+start_fail2ban_service() {
+  if ! command -v systemctl >/dev/null 2>&1; then
+    return 0
   fi
 
-  fail2ban-client status || true
-  echo
-  if fail2ban-client status sshd >/dev/null 2>&1; then
-    say "[sshd jail 状态]:" "[sshd jail status]:"
-    fail2ban-client status sshd || true
-  else
-    say "未检测到 sshd jail。" "sshd jail not found."
-  fi
+  systemctl enable fail2ban 2>/dev/null || true
+  systemctl restart fail2ban 2>/dev/null || systemctl start fail2ban 2>/dev/null || true
+
+  local i
+  for i in $(seq 1 10); do
+    if systemctl is-active --quiet fail2ban 2>/dev/null; then
+      return 0
+    fi
+    sleep 1
+  done
+
+  return 1
 }
 
 setup_fail2ban_basic() {
@@ -693,290 +852,4 @@ setup_fail2ban_basic() {
   if ! command -v fail2ban-client >/dev/null 2>&1; then
     if is_debian_like; then
       apt update
-      apt install fail2ban -y
-    else
-      say "${RED}[错误] 当前发行版不支持自动安装 fail2ban，请手动安装并配置。${RESET}" \
-          "${RED}[ERROR] This distro is not supported for automatic fail2ban install. Configure manually.${RESET}"
-      return
-    fi
-  fi
-
-  local JAIL_LOCAL="/etc/fail2ban/jail.local"
-  if [ -f "$JAIL_LOCAL" ]; then
-    cp "$JAIL_LOCAL" "${JAIL_LOCAL}.bak.$(date +%Y%m%d%H%M%S)"
-    say "[备份] 已备份现有 $JAIL_LOCAL" \
-        "[Backup] Existing $JAIL_LOCAL has been saved."
-  fi
-
-  cat > "$JAIL_LOCAL" <<'EOF'
-[DEFAULT]
-bantime  = 1h
-findtime = 10m
-maxretry = 5
-banaction = ufw
-backend = systemd
-
-[sshd]
-enabled = true
-port    = ssh
-filter  = sshd
-logpath = /var/log/auth.log
-EOF
-
-  systemctl enable fail2ban
-  systemctl restart fail2ban
-
-  say "${GREEN}[完成] fail2ban 已启动，并配置 sshd 基础防护。${RESET}" \
-      "${GREEN}[Done] fail2ban started with basic sshd protection.${RESET}"
-  fail2ban-client status sshd || true
-}
-
-show_listening_ports() {
-  say "${GREEN}== 当前监听端口与进程 ==${RESET}" \
-      "${GREEN}== Current listening ports & processes ==${RESET}"
-  if command -v ss >/dev/null 2>&1; then
-    ss -tulpen
-  elif command -v netstat >/dev/null 2>&1; then
-    netstat -tulpen
-  else
-    say "未找到 ss 或 netstat 命令。" \
-        "Neither ss nor netstat command found."
-  fi
-}
-
-show_ssh_auth_logs() {
-  say "${GREEN}== SSH 认证日志摘要 ==${RESET}" \
-      "${GREEN}== SSH auth log summary ==${RESET}"
-  local auth_log="/var/log/auth.log"
-  if [ ! -f "$auth_log" ]; then
-    say "未找到 $auth_log 文件（可能使用其他日志系统）。" \
-        "$auth_log not found (system may use a different log setup)."
-    return
-  fi
-  say "-- 最近 40 行 auth.log --" \
-      "-- Last 40 lines of auth.log --"
-  tail -n 40 "$auth_log" || true
-  echo
-  say "-- 最近 40 行包含 Failed password 的记录 --" \
-      "-- Last 40 lines containing 'Failed password' --"
-  if ! grep "Failed password" "$auth_log" | tail -n 40; then
-    say "无匹配记录。" "No matching records."
-  fi
-}
-
-show_cron_overview() {
-  say "${GREEN}== 定时任务 (cron) 概览 ==${RESET}" \
-      "${GREEN}== Cron jobs overview ==${RESET}"
-  say "[root 用户 crontab]:" "[root user crontab]:"
-  crontab -l 2>/dev/null || say "无 root crontab 或无法读取。" "No root crontab or cannot read."
-  echo
-  say "[系统级 crontab (/etc/crontab)]:" "[System crontab (/etc/crontab)]:"
-  if [ -f /etc/crontab ]; then
-    cat /etc/crontab
-  else
-    say "无 /etc/crontab 文件。" "/etc/crontab not found."
-  fi
-  echo
-  say "[/etc/cron.* 目录列表]:" "[/etc/cron.* directories]:"
-  ls -R /etc/cron* 2>/dev/null || say "无 /etc/cron* 目录。" "No /etc/cron* directories."
-}
-
-check_suid_quick() {
-  say "${GREEN}== SUID 程序快速检查（前 50 个） ==${RESET}" \
-      "${GREEN}== Quick SUID binaries check (first 50) ==${RESET}"
-  say "注意：这是一个只读列表，用于安全排查。不要随意删除系统 SUID 文件。" \
-      "Note: This is a read-only list for security review. Do not remove SUID files blindly."
-  echo
-  find / -perm -4000 -type f 2>/dev/null | head -n 50
-}
-
-generate_snapshot() {
-  local ts filename
-  ts=$(date +%Y%m%d_%H%M%S)
-  filename="$(pwd)/vps_security_snapshot_${ts}.log"
-  say "${GREEN}== 生成安全状态快照 ==${RESET}" \
-      "${GREEN}== Generating security snapshot ==${RESET}"
-  say "输出文件：$filename" "Output file: $filename"
-  {
-    echo "===== VPS Security Snapshot $ts ====="
-    echo
-    echo "--- Basic info ---"
-    hostnamectl 2>/dev/null || hostname
-    echo
-    [ -f /etc/os-release ] && cat /etc/os-release
-    echo
-    echo "--- Kernel ---"
-    uname -a
-    echo
-    echo "--- Listening ports (ss/netstat) ---"
-    if command -v ss >/dev/null 2>&1; then
-      ss -tulpen
-    elif command -v netstat >/dev/null 2>&1; then
-      netstat -tulpen
-    else
-      echo "No ss/netstat available."
-    fi
-    echo
-    echo "--- UFW status ---"
-    if command -v ufw >/dev/null 2>&1; then
-      ufw status verbose
-    else
-      echo "UFW not installed."
-    fi
-    echo
-    echo "--- fail2ban sshd status ---"
-    if command -v fail2ban-client >/dev/null 2>&1; then
-      fail2ban-client status sshd 2>/dev/null || fail2ban-client status 2>/dev/null || echo "sshd jail not found."
-    else
-      echo "fail2ban not installed."
-    fi
-    echo
-    echo "--- SSH effective config (sshd -T key fields) ---"
-    if command -v sshd >/dev/null 2>&1; then
-      sshd -T | egrep "port|addressfamily|passwordauthentication|permitrootlogin|pubkeyauthentication|kbdinteractiveauthentication|challengeresponseauthentication|usepam" || true
-    else
-      echo "sshd binary not found."
-    fi
-    echo
-    echo "--- SSH auth log (tail) ---"
-    if [ -f /var/log/auth.log ]; then
-      tail -n 80 /var/log/auth.log
-    else
-      echo "/var/log/auth.log not found."
-    fi
-    echo
-    echo "--- SUID binaries (first 50) ---"
-    find / -perm -4000 -type f 2>/dev/null | head -n 50
-    echo
-    echo "--- Root crontab ---"
-    crontab -l 2>/dev/null || echo "No root crontab."
-    echo
-    echo "--- /etc/crontab ---"
-    if [ -f /etc/crontab ]; then
-      cat /etc/crontab
-    else
-      echo "/etc/crontab not found."
-    fi
-    echo
-    echo "===== END OF SNAPSHOT ====="
-  } > "$filename"
-  if [ -f "$filename" ]; then
-    say "${GREEN}[完成] 已生成快照：$filename${RESET}" \
-        "${GREEN}[Done] Snapshot saved to: $filename${RESET}"
-  else
-    say "${RED}[错误] 快照生成失败。${RESET}" \
-        "${RED}[ERROR] Failed to create snapshot file.${RESET}"
-  fi
-}
-
-show_menu() {
-  print_header
-  if [ "$LANG_MODE" = "zh" ]; then
-    echo "当前界面语言：中文 (zh)"
-    echo
-    echo "  1) 切换语言（中/英）"
-    echo "  2) 显示系统基础信息"
-    echo "  3) 显示系统资源使用情况（内存/磁盘/进程）"
-    echo "  4) 检查系统更新（apt）并可选升级"
-    echo "  5) 配置自动安全更新（unattended-upgrades）"
-    echo "  6) 新增安全 SSH 用户（仅密钥或密码+密钥）"
-    echo "  7) 检查用户与 sudo 权限"
-    echo "  8) 检查 SSH 配置（含 sshd -T）"
-    echo "  9) SSH 基础加固（禁 root / 禁密码登录）"
-    echo " 10) 修改 SSH 端口（附带 UFW 规则）"
-    echo " 11) 检查防火墙状态（UFW / firewalld）"
-    echo " 12) 一键配置 UFW 基础规则 (22/80/443)"
-    echo " 13) 检查 fail2ban 状态"
-    echo " 14) 安装并配置 fail2ban sshd 防护"
-    echo " 15) 查看当前监听端口与进程"
-    echo " 16) 查看 SSH 认证日志摘要"
-    echo " 17) 查看 cron 定时任务概览"
-    echo " 18) 快速检查 SUID 程序（前 50 个）"
-    echo " 19) 生成一次安全状态快照（输出到当前目录）"
-    echo " 20) 锁定 root 账户密码（可选操作）"
-    echo "  0) 退出"
-  else
-    echo "Current UI language: English (en)"
-    echo
-    echo "  1) Switch language (zh/en)"
-    echo "  2) Show basic system info"
-    echo "  3) Show system resource usage (memory/disk/processes)"
-    echo "  4) Check updates (apt) and optionally upgrade"
-    echo "  5) Setup automatic security updates (unattended-upgrades)"
-    echo "  6) Create secure SSH user (key-only or password+key)"
-    echo "  7) Check users and sudo privileges"
-    echo "  8) Check SSH configuration (including sshd -T)"
-    echo "  9) SSH basic hardening (disable root/password auth)"
-    echo " 10) Change SSH port (with UFW rule)"
-    echo " 11) Check firewall status (UFW / firewalld)"
-    echo " 12) Setup basic UFW rules (22/80/443)"
-    echo " 13) Check fail2ban status"
-    echo " 14) Install & configure fail2ban sshd jail"
-    echo " 15) Show current listening ports & processes"
-    echo " 16) Show SSH auth log summary"
-    echo " 17) Show cron jobs overview"
-    echo " 18) Quick SUID binaries check (first 50)"
-    echo " 19) Generate a security snapshot (saved to current dir)"
-    echo " 20) Lock root account password (optional)"
-    echo "  0) Exit"
-  fi
-  echo
-}
-
-main_loop() {
-  while true; do
-    show_menu
-    local choice
-    if [ "$LANG_MODE" = "zh" ]; then
-      read -rp "请输入选项编号: " choice
-    else
-      read -rp "Enter choice number: " choice
-    fi
-    echo
-    case "$choice" in
-      1)
-        toggle_lang
-        if [ "$LANG_MODE" = "zh" ]; then
-          say "${GREEN}[完成] 已切换为中文界面。${RESET}" \
-              "${GREEN}[Done] Switched to Chinese UI.${RESET}"
-        else
-          say "${GREEN}[完成] 已切换为英文界面。${RESET}" \
-              "${GREEN}[Done] Switched to English UI.${RESET}"
-        fi
-        pause
-        ;;
-      2) show_basic_info; pause ;;
-      3) show_resource_usage; pause ;;
-      4) check_updates; pause ;;
-      5) setup_unattended_upgrades; pause ;;
-      6) create_user_secure; pause ;;
-      7) check_users_and_sudo; pause ;;
-      8) check_ssh_config; pause ;;
-      9) harden_ssh_interactive; pause ;;
-      10) change_ssh_port; pause ;;
-      11) check_firewall; pause ;;
-      12) basic_firewall_setup_ufw; pause ;;
-      13) check_fail2ban; pause ;;
-      14) setup_fail2ban_basic; pause ;;
-      15) show_listening_ports; pause ;;
-      16) show_ssh_auth_logs; pause ;;
-      17) show_cron_overview; pause ;;
-      18) check_suid_quick; pause ;;
-      19) generate_snapshot; pause ;;
-      20) lock_root_account; pause ;;
-      0)
-        echo "Bye~"
-        exit 0
-        ;;
-      *)
-        say "${YELLOW}无效选项，请重新输入。${RESET}" \
-            "${YELLOW}Invalid choice, please try again.${RESET}"
-        ;;
-    esac
-    clear
-  done
-}
-
-need_root
-check_distro
-main_loop
+      apt in
