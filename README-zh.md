@@ -11,16 +11,34 @@
 
 > 首次出现的缩写会同时给出全称。
 
-主要功能：
+### 系统初始化与优化
+- Swap 内存管理（自动计算推荐大小、创建/删除）
+- 时间同步（chrony）与时区设置
+- TCP BBR 拥塞控制优化（显著提升网络性能）
+- 内核安全参数加固（sysctl 自动配置）
 
-- 新建安全 SSH（Secure Shell 安全外壳协议）用户  
-  - 仅密钥登录 / 密码 + 密钥登录  
-  - 自动创建 `~/.ssh/authorized_keys`，权限正确
+### 用户与 SSH（Secure Shell 安全外壳协议）安全
+- 新建安全 SSH 用户（仅密钥登录 / 密码 + 密钥登录）
+- 自动创建 `~/.ssh/authorized_keys`，权限正确
 - 禁用 root 远程登录、关闭密码登录（只保留公钥登录）
+- 修改 SSH 端口（自动同步 UFW 规则）
+
+### 防火墙与防护
 - 检查与配置 UFW（Uncomplicated Firewall 简易防火墙）规则
+- **常用端口快捷放行**（HTTP/HTTPS/MySQL/PostgreSQL/Redis/MongoDB 等 9 种）
 - 安装并配置 fail2ban（暴力破解防护工具），自动封禁异常 IP
-- 检查当前 SSH 配置、防火墙、登录日志、SUID（Set-User-ID 置用户 ID 位）程序、定时任务
-- 一键生成安全状态快照日志，方便做「学习记录 / 审计留档」
+
+### 监控与审计
+- 查看系统信息、资源使用（CPU/内存/磁盘/负载）
+- 检查当前 SSH 配置、防火墙状态、登录日志
+- SUID（Set-User-ID 置用户 ID 位）程序检查、定时任务查看
+- **生成安全审计报告**（含 [PASS]/[WARN]/[FAIL] 标记）
+- 一键生成安全状态快照日志
+
+### 配置管理
+- 配置文件支持（`/etc/vps-secure-tool.conf`）
+- **配置备份与恢复**（SSH/UFW/fail2ban/sysctl 一键打包）
+- 脚本自动更新检测与升级
 
 目标：**上 VPS 之后只要记得先跑这个脚本，剩下的都用菜单点一遍。**
 
@@ -81,36 +99,36 @@ sudo ./vps_secure_tool.sh
 
 脚本启动后，会显示一个中英双语菜单，按数字选择操作即可。
 
-### 菜单功能（简要说明）
+### 主菜单结构
 
-1. 切换语言（中文 / English）  
-2. 显示系统基础信息（主机名、发行版、内核、网络接口与 IP）  
-3. 显示系统资源使用情况（内存 / 磁盘 / Top 进程）  
-4. 检查系统更新（`apt`）并可选执行 `apt upgrade`  
-5. 配置自动安全更新（`unattended-upgrades`）  
-6. 新增安全 SSH 用户  
-   - 仅密钥登录（推荐）或密码 + 密钥登录  
-   - 自动创建 `.ssh` 目录与 `authorized_keys`，校正权限  
-   - 可选择加入 `sudo` / `wheel` 组  
-   - 支持粘贴现有公钥，或在服务器上生成新的密钥对（附安全提醒）  
-7. 检查用户与 `sudo` 权限（`sudo` / `wheel` 组、`/etc/sudoers.d`）  
-8. 检查 SSH 配置（含 `sshd -T` 关键字段）  
-9. SSH 基础加固：  
-   - `PermitRootLogin no`（禁止 root 用户远程 SSH 登录）  
-   - `PasswordAuthentication no`（关闭密码登录，只允许公钥）  
-   - 自动备份配置、语法校验、重启 `ssh` / `sshd`  
-10. 修改 SSH 端口（并自动在 UFW 中放行新端口）  
-11. 检查防火墙状态（UFW / firewalld）  
-12. 一键配置 UFW 基础规则：允许 OpenSSH / 80 / 443，其他入站默认拒绝  
-13. 检查 fail2ban 状态（包括 `sshd` jail）  
-14. 安装并配置 fail2ban sshd 防护  
-15. 查看当前监听端口与进程（`ss -tulpen` / `netstat -tulpen`）  
-16. 查看 SSH 认证日志摘要（`/var/log/auth.log` + “Failed password” 记录）  
-17. 查看定时任务（cron）概览：root crontab / `/etc/crontab` / `/etc/cron*`  
-18. 快速检查 SUID 程序（前 50 个），辅助安全排查  
-19. 生成一次安全状态快照日志（保存到当前目录）  
-20. 锁定 root 账户密码（不影响 `sudo` 提权，仅禁止直接使用 root 密码登录）  
-0. 退出脚本  
+脚本采用分类子菜单设计，主菜单包含 7 个功能分类：
+
+1. **系统环境初始化** - 基础信息、资源监控、更新、Swap、时间同步、BBR、内核加固
+2. **用户与 SSH 管理** - 创建用户、SSH 配置、端口修改、安全加固
+3. **防火墙管理** - UFW 配置、fail2ban、端口快捷管理
+4. **日志与监控** - 监听端口、登录日志、定时任务、系统监控工具
+5. **安全审计** - SUID 检查、安全快照、审计报告生成
+6. **配置管理** - 查看/编辑配置、备份/恢复配置
+7. **更新与关于** - 检查更新、执行更新、版本信息
+
+### 主要功能说明
+
+**系统初始化**
+- Swap 管理：自动计算推荐大小（内存≤2G用2G，>2G用等量，最大4G）
+- TCP BBR：一键启用 BBR 拥塞控制算法，提升网络性能
+- 内核安全参数：禁用 IP 转发、ICMP 重定向，启用 ASLR 等 10+ 项加固
+
+**防火墙管理**
+- 端口快捷管理：支持 9 种常用端口一键放行/关闭
+  - SSH(22), HTTP(80), HTTPS(443), MySQL(3306), PostgreSQL(5432)
+  - Redis(6379), MongoDB(27017), Alt-HTTP(8080), Alt-HTTPS(8443)
+
+**安全审计**
+- 审计报告：自动检查 SSH、防火墙、用户权限等，生成 [PASS]/[WARN]/[FAIL] 标记报告
+
+**配置管理**
+- 备份：打包 SSH/UFW/fail2ban/sysctl 配置到 `/var/backups/vps-secure-tool/`
+- 恢复：从备份文件还原配置，可选重启相关服务  
 
 ---
 

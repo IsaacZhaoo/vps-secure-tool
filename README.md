@@ -45,12 +45,32 @@ sudo ./vps_secure_tool.sh
 
 ## 🧩 它大概能做什么？（What it does）
 
-- 新建安全 SSH（Secure Shell）用户（仅密钥登录 / 密码 + 密钥登录）
+**系统初始化与优化**
+- Swap 内存管理（自动计算大小、创建/删除）
+- 时间同步（chrony）与时区设置
+- TCP BBR 拥塞控制优化
+- 内核安全参数加固（sysctl）
+
+**用户与 SSH 安全**
+- 新建安全 SSH 用户（仅密钥登录 / 密码 + 密钥登录）
 - 禁用 root SSH 登录、关闭密码登录（只保留公钥登录）
-- 检查并配置 UFW（Uncomplicated Firewall）防火墙规则
+- 修改 SSH 端口
+
+**防火墙与防护**
+- 检查并配置 UFW 防火墙规则
+- 常用端口快捷放行（HTTP/HTTPS/MySQL/PostgreSQL/Redis 等）
 - 安装并配置 fail2ban，抵御 SSH 暴力破解
-- 查看系统信息、资源使用、SSH 配置、防火墙状态、登录日志、SUID 程序、定时任务
-- 一键生成当前 VPS 的安全状态快照日志，方便做“学习记录 / 审计留档”
+
+**监控与审计**
+- 查看系统信息、资源使用、SSH 配置、防火墙状态
+- 登录日志分析、SUID 程序检查、定时任务查看
+- 生成安全审计报告（含 PASS/WARN/FAIL 标记）
+- 一键生成安全状态快照日志
+
+**配置管理**
+- 配置文件支持（/etc/vps-secure-tool.conf）
+- 配置备份与恢复（SSH/UFW/fail2ban/sysctl）
+- 脚本自动更新检测
 
 运行脚本后，按照菜单编号一步步操作即可。
 

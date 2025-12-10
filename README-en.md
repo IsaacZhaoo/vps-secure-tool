@@ -12,16 +12,34 @@ The script provides an interactive menu to help you perform common security hard
 
 > For the first occurrence, abbreviations are expanded with their full names.
 
-Main capabilities:
+### System Initialization & Optimization
+- Swap memory management (auto-calculate recommended size, create/remove)
+- Time synchronization (chrony) and timezone configuration
+- TCP BBR congestion control optimization (significantly improves network performance)
+- Kernel security parameter hardening (sysctl auto-configuration)
 
-- Create secure SSH (Secure Shell) users  
-  - Key-only login, or password + key  
-  - Automatically creates `~/.ssh/authorized_keys` with correct permissions
+### User & SSH (Secure Shell) Security
+- Create secure SSH users (key-only login, or password + key)
+- Automatically creates `~/.ssh/authorized_keys` with correct permissions
 - Disable remote root login and password authentication (public key only)
+- Change SSH port (automatically syncs UFW rules)
+
+### Firewall & Protection
 - Inspect and configure UFW (Uncomplicated Firewall) rules
+- **Quick port management** (HTTP/HTTPS/MySQL/PostgreSQL/Redis/MongoDB and 9 common ports)
 - Install and configure fail2ban (brute-force protection), banning suspicious IPs
-- Inspect SSH configuration, firewall status, auth logs, SUID (Set-User-ID) binaries, and cron jobs
-- Generate one-shot security snapshot logs for auditing and learning notes
+
+### Monitoring & Auditing
+- View system info, resource usage (CPU/memory/disk/load)
+- Inspect SSH configuration, firewall status, auth logs
+- SUID (Set-User-ID) binary inspection, cron job overview
+- **Generate security audit reports** (with [PASS]/[WARN]/[FAIL] markers)
+- One-shot security snapshot log generation
+
+### Configuration Management
+- Configuration file support (`/etc/vps-secure-tool.conf`)
+- **Configuration backup & restore** (SSH/UFW/fail2ban/sysctl one-click package)
+- Automatic script update detection and upgrade
 
 Goal: **After you log into a VPS, just run this script first and drive everything from the menu.**
 
@@ -82,36 +100,36 @@ sudo ./vps_secure_tool.sh
 
 Once launched, the script shows a bilingual menu; choose actions by number.
 
-### Menu (Short Description)
+### Main Menu Structure
 
-1. Switch UI language (Chinese / English)  
-2. Show basic system info (hostname, OS release, kernel, network interfaces & IPs)  
-3. Show system resource usage (memory / disk / top memory-hungry processes)  
-4. Check available updates via `apt` and optionally run `apt upgrade`  
-5. Configure automatic security updates via `unattended-upgrades`  
-6. Create a secure SSH user  
-   - Key-only login (recommended) or password + key  
-   - Automatically creates `.ssh` and `authorized_keys` with safe permissions  
-   - Optionally add user to `sudo` / `wheel` group  
-   - Supports pasting an existing public key or generating a key pair on the server (with a security warning)  
-7. Inspect users and sudo privileges (`sudo` / `wheel` groups, `/etc/sudoers.d`)  
-8. Inspect SSH configuration (including key fields from `sshd -T`)  
-9. SSH basic hardening:  
-   - `PermitRootLogin no` (disallow root SSH login)  
-   - `PasswordAuthentication no` (disable password login, public key only)  
-   - Automatically back up config, run syntax check, and restart `ssh` / `sshd`  
-10. Change SSH port (and open the new port in UFW automatically)  
-11. Check firewall status (UFW / firewalld)  
-12. Setup basic UFW rules: allow OpenSSH / 80 / 443, deny other incoming traffic by default  
-13. Check fail2ban status (including `sshd` jail)  
-14. Install and configure fail2ban for sshd protection  
-15. Show current listening ports and owning processes (`ss -tulpen` / `netstat -tulpen`)  
-16. Show SSH auth log summary (`/var/log/auth.log` + records containing “Failed password”)  
-17. Show cron jobs overview: root crontab / `/etc/crontab` / `/etc/cron*`  
-18. Quick check of SUID binaries (first 50) for security review  
-19. Generate a one-shot security snapshot log (saved to current directory)  
-20. Lock the root account password (does not affect `sudo`, only direct root password login)  
-0. Exit the script  
+The script uses a categorized sub-menu design with 7 main categories:
+
+1. **System Initialization** - System info, resource monitoring, updates, Swap, time sync, BBR, kernel hardening
+2. **User & SSH Management** - Create users, SSH config, port changes, security hardening
+3. **Firewall Management** - UFW configuration, fail2ban, quick port management
+4. **Logs & Monitoring** - Listening ports, auth logs, cron jobs, system monitoring tools
+5. **Security Audit** - SUID check, security snapshot, audit report generation
+6. **Configuration Management** - View/edit config, backup/restore
+7. **Updates & About** - Check updates, perform updates, version info
+
+### Key Features
+
+**System Initialization**
+- Swap Management: Auto-calculates recommended size (≤2GB RAM uses 2GB, >2GB uses equal amount, max 4GB)
+- TCP BBR: One-click enable BBR congestion control algorithm for better network performance
+- Kernel Security: Disables IP forwarding, ICMP redirects, enables ASLR and 10+ hardening parameters
+
+**Firewall Management**
+- Quick Port Management: Support for 9 common ports with one-click allow/deny
+  - SSH(22), HTTP(80), HTTPS(443), MySQL(3306), PostgreSQL(5432)
+  - Redis(6379), MongoDB(27017), Alt-HTTP(8080), Alt-HTTPS(8443)
+
+**Security Audit**
+- Audit Report: Auto-checks SSH, firewall, user permissions, generates [PASS]/[WARN]/[FAIL] marked report
+
+**Configuration Management**
+- Backup: Packages SSH/UFW/fail2ban/sysctl configs to `/var/backups/vps-secure-tool/`
+- Restore: Restores configs from backup file, optional service restart  
 
 ---
 

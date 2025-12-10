@@ -1,0 +1,72 @@
+# VPS Secure Tool Configuration File
+# 配置文件路径: /etc/vps-secure-tool.conf
+#
+# 使用方法:
+#   1. 复制此文件到 /etc/vps-secure-tool.conf
+#   2. 根据需要修改配置项
+#   3. 脚本运行时会自动加载配置
+#
+# Usage:
+#   1. Copy this file to /etc/vps-secure-tool.conf
+#   2. Modify settings as needed
+#   3. Script will auto-load configuration on startup
+
+# ============================================================
+# 用户配置 / User Settings
+# ============================================================
+
+# 默认新用户名（留空则每次询问）
+# Default new username (leave empty to ask each time)
+DEFAULT_USER=""
+
+# ============================================================
+# SSH 配置 / SSH Settings
+# ============================================================
+
+# SSH 端口号 (1-65535)
+# SSH port number
+SSH_PORT=22
+
+# 是否禁用 root 登录 (yes/no)
+# Disable root login
+DISABLE_ROOT_LOGIN="yes"
+
+# 是否禁用密码登录 (yes/no)
+# Disable password authentication
+DISABLE_PASSWORD_AUTH="yes"
+
+# ============================================================
+# 防火墙配置 / Firewall Settings
+# ============================================================
+
+# 是否启用 UFW 防火墙 (yes/no)
+# Enable UFW firewall
+ENABLE_UFW="yes"
+
+# UFW 允许的端口列表（逗号分隔）
+# UFW allowed ports (comma separated)
+UFW_ALLOW_PORTS="22,80,443"
+
+# ============================================================
+# 更新配置 / Update Settings
+# ============================================================
+
+# 是否自动检查脚本更新 (true/false)
+# Auto check for script updates
+AUTO_UPDATE_CHECK="true"
+
+# ============================================================
+# Fail2Ban 配置 / Fail2Ban Settings
+# ============================================================
+
+# Fail2Ban 封禁时间 (例如: 1h, 30m, 1d)
+# Fail2Ban ban time
+FAIL2BAN_BANTIME="1h"
+
+# Fail2Ban 查找时间窗口
+# Fail2Ban find time window
+FAIL2BAN_FINDTIME="10m"
+
+# Fail2Ban 最大重试次数
+# Fail2Ban max retry attempts
+FAIL2BAN_MAXRETRY="5"
