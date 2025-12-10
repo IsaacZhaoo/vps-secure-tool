@@ -221,152 +221,190 @@ check_users_and_sudo() {
 }
 
 create_user_secure() {
-  say "${GREEN}== 新增安全 SSH 用户（支持仅密钥登录） ==${RESET}" \
-      "${GREEN}== Create secure SSH user (key-only or password+key) ==${RESET}"
+    say "${GREEN}== 新增安全 SSH 用户（支持仅密钥登录） ==${RESET}" \
+        "${GREEN}== Create secure SSH user (key-only or password+key) ==${RESET}"
 
-  local username
-  ask "请输入要创建的用户名（仅小写字母/数字/下划线/短横线）： " \
-      "Enter new username (lowercase letters/numbers/_/- only): " username
+    local username
+    ask "请输入要创建的用户名（仅小写字母/数字/下划线/短横线）： " \
+        "Enter new username (lowercase letters/numbers/_/- only): " username
 
-  if [ -z "$username" ]; then
-    say "${RED}[错误] 用户名不能为空。${RESET}" \
-        "${RED}[ERROR] Username cannot be empty.${RESET}"
-    return
-  fi
+    if [ -z "$username" ]; then
+        say "${RED}[错误] 用户名不能为空。${RESET}" \
+            "${RED}[ERROR] Username cannot be empty.${RESET}"
+        return
+    fi
 
-  if ! echo "$username" | grep -Eq '^[a-z_][a-z0-9_-]*$'; then
-    say "${RED}[错误] 用户名格式不合法。${RESET}" \
-        "${RED}[ERROR] Invalid username format.${RESET}"
-    return
-  fi
+    if ! echo "$username" | grep -Eq '^[a-z_][a-z0-9_-]*$'; then
+        say "${RED}[错误] 用户名格式不合法。${RESET}" \
+            "${RED}[ERROR] Invalid username format.${RESET}"
+        return
+    fi
 
-  if id -u "$username" >/dev/null 2>&1; then
-    say "${RED}[错误] 用户已存在：$username${RESET}" \
-        "${RED}[ERROR] User already exists: $username${RESET}"
-    return
-  fi
+    if id -u "$username" >/dev/null 2>&1; then
+        say "${RED}[错误] 用户已存在：$username${RESET}" \
+            "${RED}[ERROR] User already exists: $username${RESET}"
+        return
+    fi
 
-  local add_sudo login_mode
-  ask "是否将该用户加入 sudo 组？[y/N]: " \
-      "Add this user to sudo group? [y/N]: " add_sudo
+    local add_sudo login_mode sudo_pwd_set
+    sudo_pwd_set="no"
 
-  say "请选择登录方式：" "Choose login method:"
-  if [ "$LANG_MODE" = "zh" ]; then
-    echo "  1) 仅允许 SSH 密钥登录（推荐，禁止密码登录）"
-    echo "  2) 允许密码登录（同时可配置 SSH 密钥）"
-  else
-    echo "  1) SSH key-only login (recommended, no password login)"
-    echo "  2) Allow password login (and optionally SSH key)"
-  fi
+    ask "是否将该用户加入 sudo 组？[y/N]: " \
+        "Add this user to sudo group? [y/N]: " add_sudo
 
-  ask "请输入选项编号 [1/2]（默认 1）: " \
-      "Enter choice [1/2] (default 1): " login_mode
-  [ -z "$login_mode" ] && login_mode="1"
+    say "请选择登录方式：" "Choose login method:"
+    if [ "$LANG_MODE" = "zh" ]; then
+        echo " 1) 仅允许 SSH 密钥登录（推荐，后续结合 PasswordAuthentication no 使用）"
+        echo " 2) 允许密码登录（同时可配置 SSH 密钥）"
+    else
+        echo " 1) SSH key-only login (recommended, use together with PasswordAuthentication no)"
+        echo " 2) Allow password login (and optionally SSH key)"
+    fi
 
-  # 创建用户（初始禁用密码）
-  adduser --disabled-password --gecos "" "$username"
+    ask "请输入选项编号 [1/2]（默认 1）: " \
+        "Enter choice [1/2] (default 1): " login_mode
+    [ -z "$login_mode" ] && login_mode="1"
 
-  # 是否加入 sudo 组
-  case "$add_sudo" in
-    y|Y)
-      if getent group sudo >/dev/null 2>&1; then
-        usermod -aG sudo "$username"
-      elif getent group wheel >/dev/null 2>&1; then
-        usermod -aG wheel "$username"
-      fi
-      ;;
-  esac
+    # 创建用户（初始禁用密码）
+    adduser --disabled-password --gecos "" "$username"
 
-  # 设置密码（如果选择允许密码登录）
-  if [ "$login_mode" = "2" ]; then
-    say "接下来为该用户设置密码：" \
-        "Now set a password for this user:"
-    passwd "$username"
-  fi
+    # 是否加入 sudo / wheel 组
+    case "$add_sudo" in
+        y|Y)
+            if getent group sudo >/dev/null 2>&1; then
+                usermod -aG sudo "$username"
+            elif getent group wheel >/dev/null 2>&1; then
+                usermod -aG wheel "$username"
+            fi
+            ;;
+    esac
 
-  # 准备 .ssh 目录
-  local home_dir auth_file
-  home_dir=$(eval echo "~$username")
-  install -d -m 700 -o "$username" -g "$username" "$home_dir/.ssh"
-  auth_file="$home_dir/.ssh/authorized_keys"
-  touch "$auth_file"
-  chown "$username:$username" "$auth_file"
-  chmod 600 "$auth_file"
+    # ========= 密码逻辑部分 =========
+    # 1）如果选择允许密码登录（login_mode=2），设登录密码
+    if [ "$login_mode" = "2" ]; then
+        say "接下来为该用户设置密码：" \
+            "Now set a password for this user:"
+        passwd "$username"
+    fi
 
-  # 选择添加 SSH 密钥方式
-  say "是否现在为该用户添加 SSH 公钥？" \
-      "Do you want to add an SSH public key for this user now?"
-  if [ "$LANG_MODE" = "zh" ]; then
-    echo "  1) 立即粘贴本地生成的公钥（推荐）"
-    echo "  2) 在服务器上为该用户生成一对新的密钥（进阶用法）"
-    echo "  3) 暂时跳过（稍后手动编辑 authorized_keys）"
-  else
-    echo "  1) Paste an existing public key (recommended)"
-    echo "  2) Generate a new key pair on this server for this user (advanced)"
-    echo "  3) Skip for now (edit authorized_keys later manually)"
-  fi
+    # 2）如果选择 key-only 且加入了 sudo 组，问要不要设一个 sudo 用的密码
+    if [ "$login_mode" = "1" ] && [[ "$add_sudo" =~ ^[yY]$ ]]; then
+        say "该用户已加入 sudo 组。为了使用 sudo，通常需要一个本地密码。" \
+            "This user is in the sudo group. To use sudo, a local password is usually required."
+        say "注意：后续如果你在 SSH 配置中关闭 PasswordAuthentication，该密码仅用于本地 sudo，不会被用于 SSH 远程密码登录。" \
+            "Note: After you disable PasswordAuthentication in SSH config, this password will be used only for local sudo, not for SSH password logins."
 
-  local key_choice
-  ask "请输入选项编号 [1/2/3]（默认 1）: " \
-      "Enter choice [1/2/3] (default 1): " key_choice
-  [ -z "$key_choice" ] && key_choice="1"
+        local set_sudo_pwd
+        ask "是否现在为该用户设置 sudo 密码？[Y/n]: " \
+            "Set a sudo password for this user now? [Y/n]: " set_sudo_pwd
+        [ -z "$set_sudo_pwd" ] && set_sudo_pwd="Y"
 
-  case "$key_choice" in
-    1)
-      say "请粘贴一行 SSH 公钥（例如以 ssh-ed25519 或 ssh-rsa 开头）：" \
-          "Paste one line SSH public key (e.g. starting with ssh-ed25519 or ssh-rsa):"
-      local pubkey
-      read -r pubkey
-      if [ -n "$pubkey" ]; then
-        echo "$pubkey" >> "$auth_file"
-        say "${GREEN}[完成] 已写入 authorized_keys。${RESET}" \
-            "${GREEN}[Done] Public key appended to authorized_keys.${RESET}"
-      else
-        say "${YELLOW}[提示] 未输入任何公钥，稍后可手动编辑 $auth_file。${RESET}" \
-            "${YELLOW}[Note] No key entered. You can edit $auth_file later.${RESET}"
-      fi
-      ;;
-    2)
-      say "${YELLOW}[警告] 在服务器上生成密钥意味着私钥会暂存于服务器，请务必在下载后妥善删除。${RESET}" \
-          "${YELLOW}[WARNING] Generating keys on the server means the private key is stored here. Download & delete it afterwards.${RESET}"
-      local key_type key_path
-      ask "选择密钥类型（默认 ed25519，可填 rsa/ed25519）: " \
-          "Key type (default ed25519, or rsa/ed25519): " key_type
-      [ -z "$key_type" ] && key_type="ed25519"
-      key_path="$home_dir/.ssh/id_${key_type}"
-      sudo -u "$username" ssh-keygen -t "$key_type" -f "$key_path" -N ""
+        case "$set_sudo_pwd" in
+            y|Y)
+                say "接下来为该用户设置密码：" \
+                    "Now set a password for this user:"
+                passwd "$username"
+                sudo_pwd_set="yes"
+                ;;
+            *)
+                say "${YELLOW}[提示] 你选择暂时不为该用户设置密码，sudo 将无法使用，除非之后手动运行：passwd $username${RESET}" \
+                    "${YELLOW}[Note] You chose not to set a password now; sudo will not be usable until you run: passwd $username${RESET}"
+                ;;
+        esac
+    fi
+    # ========= 密码逻辑结束 =========
 
-      say "${GREEN}[完成] 已为用户生成密钥对：${RESET}" \
-          "${GREEN}[Done] Generated key pair for user:${RESET}"
-      echo "  Private key: $key_path"
-      echo "  Public  key: ${key_path}.pub"
-      say "你可以通过当前 SSH 会话查看并复制公钥/私钥内容，或用 scp 下载。" \
-          "You can view/copy the key contents in this SSH session or download via scp."
-      ;;
-    3)
-      say "${YELLOW}[提示] 未添加 SSH 公钥，用户目前只能依赖密码登录（如果已设置）。${RESET}" \
-          "${YELLOW}[Note] No SSH key added. The user can only use password login (if configured).${RESET}"
-      ;;
-    *)
-      ;;
-  esac
+    # 准备 .ssh 目录
+    local home_dir auth_file
+    home_dir=$(eval echo "~$username")
+    install -d -m 700 -o "$username" -g "$username" "$home_dir/.ssh"
+    auth_file="$home_dir/.ssh/authorized_keys"
+    touch "$auth_file"
+    chown "$username:$username" "$auth_file"
+    chmod 600 "$auth_file"
 
-  # 如果选择 key-only 且未设置密码，则确保密码锁定
-  if [ "$login_mode" = "1" ]; then
-    passwd -l "$username" >/dev/null 2>&1 || true
-    say "${GREEN}[完成] 已创建仅密钥登录的用户：$username${RESET}" \
-        "${GREEN}[Done] Created key-only login user: $username${RESET}"
-  else
-    say "${GREEN}[完成] 已创建允许密码登录的用户：$username${RESET}" \
-        "${GREEN}[Done] Created user with password login: $username${RESET}"
-  fi
+    # 选择添加 SSH 密钥方式
+    say "是否现在为该用户添加 SSH 公钥？" \
+        "Do you want to add an SSH public key for this user now?"
+    if [ "$LANG_MODE" = "zh" ]; then
+        echo " 1) 立即粘贴本地生成的公钥（推荐）"
+        echo " 2) 在服务器上为该用户生成一对新的密钥（进阶用法）"
+        echo " 3) 暂时跳过（稍后手动编辑 authorized_keys）"
+    else
+        echo " 1) Paste an existing public key (recommended)"
+        echo " 2) Generate a new key pair on this server for this user (advanced)"
+        echo " 3) Skip for now (edit authorized_keys later manually)"
+    fi
 
-  echo
-  say "用户信息摘要：" "User summary:"
-  id "$username"
-  echo "Home: $home_dir"
-  echo ".ssh: $home_dir/.ssh"
-  echo "authorized_keys: $auth_file"
+    local key_choice
+    ask "请输入选项编号 [1/2/3]（默认 1）: " \
+        "Enter choice [1/2/3] (default 1): " key_choice
+    [ -z "$key_choice" ] && key_choice="1"
+
+    case "$key_choice" in
+        1)
+            say "请粘贴一行 SSH 公钥（例如以 ssh-ed25519 或 ssh-rsa 开头）：" \
+                "Paste one line SSH public key (e.g. starting with ssh-ed25519 or ssh-rsa):"
+            local pubkey
+            read -r pubkey
+            if [ -n "$pubkey" ]; then
+                echo "$pubkey" >> "$auth_file"
+                say "${GREEN}[完成] 已写入 authorized_keys。${RESET}" \
+                    "${GREEN}[Done] Public key appended to authorized_keys.${RESET}"
+            else
+                say "${YELLOW}[提示] 未输入任何公钥，稍后可手动编辑 $auth_file。${RESET}" \
+                    "${YELLOW}[Note] No key entered. You can edit $auth_file later.${RESET}"
+            fi
+            ;;
+        2)
+            say "${YELLOW}[警告] 在服务器上生成密钥意味着私钥会暂存于服务器，请务必在下载后妥善删除。${RESET}" \
+                "${YELLOW}[WARNING] Generating keys on the server means the private key is stored here. Download & delete it afterwards.${RESET}"
+            local key_type key_path
+            ask "选择密钥类型（默认 ed25519，可填 rsa/ed25519）: " \
+                "Key type (default ed25519, or rsa/ed25519): " key_type
+            [ -z "$key_type" ] && key_type="ed25519"
+            key_path="$home_dir/.ssh/id_${key_type}"
+            sudo -u "$username" ssh-keygen -t "$key_type" -f "$key_path" -N ""
+            say "${GREEN}[完成] 已为用户生成密钥对：${RESET}" \
+                "${GREEN}[Done] Generated key pair for user:${RESET}"
+            echo " Private key: $key_path"
+            echo " Public key: ${key_path}.pub"
+            say "你可以通过当前 SSH 会话查看并复制公钥/私钥内容，或用 scp 下载。" \
+                "You can view/copy the key contents in this SSH session or download via scp."
+            ;;
+        3)
+            say "${YELLOW}[提示] 未添加 SSH 公钥，用户目前只能依赖密码登录（如果已设置）。${RESET}" \
+                "${YELLOW}[Note] No SSH key added. The user can only use password login (if configured).${RESET}"
+            ;;
+        *)
+            ;;
+    esac
+
+    # key-only 模式下的最终处理
+    if [ "$login_mode" = "1" ]; then
+        # 如果没有为 sudo 设置密码，则继续锁定密码（完全 key-only，无 sudo 密码）
+        if [ "$sudo_pwd_set" != "yes" ]; then
+            passwd -l "$username" >/dev/null 2>&1 || true
+        fi
+
+        if [ "$sudo_pwd_set" = "yes" ]; then
+            say "${GREEN}[完成] 已创建仅 SSH 密钥登录的用户（本地 sudo 使用密码）：$username${RESET}" \
+                "${GREEN}[Done] Created key-only SSH user with local sudo password: $username${RESET}"
+        else
+            say "${GREEN}[完成] 已创建仅 SSH 密钥登录的用户：$username${RESET}" \
+                "${GREEN}[Done] Created key-only login user: $username${RESET}"
+        fi
+    else
+        say "${GREEN}[完成] 已创建允许密码登录的用户：$username${RESET}" \
+            "${GREEN}[Done] Created user with password login: $username${RESET}"
+    fi
+
+    echo
+    say "用户信息摘要：" "User summary:"
+    id "$username"
+    echo "Home: $home_dir"
+    echo ".ssh: $home_dir/.ssh"
+    echo "authorized_keys: $auth_file"
 }
 
 lock_root_account() {
