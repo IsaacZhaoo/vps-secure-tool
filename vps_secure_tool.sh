@@ -17,7 +17,7 @@
 # ============================================================
 # VERSION - 版本信息
 # ============================================================
-VERSION="1.1.1"
+VERSION="1.1.2"
 SCRIPT_NAME="vps-secure-tool"
 GITHUB_REPO="IsaacZhaoo/vps-secure-tool"
 CONFIG_FILE="/etc/vps-secure-tool.conf"
