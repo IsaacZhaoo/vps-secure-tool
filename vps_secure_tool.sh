@@ -17,7 +17,7 @@
 # ============================================================
 # VERSION - 版本信息
 # ============================================================
-VERSION="1.1.2"
+VERSION="1.1.3"
 SCRIPT_NAME="vps-secure-tool"
 GITHUB_REPO="IsaacZhaoo/vps-secure-tool"
 CONFIG_FILE="/etc/vps-secure-tool.conf"
@@ -1220,6 +1220,43 @@ check_users_and_sudo() {
       "Please check if there are any high-risk rules like NOPASSWD: ALL."
 }
 
+# 添加用户到 AllowUsers 白名单（如果白名单存在）
+add_user_to_allowusers() {
+  local username="$1"
+  local sshd_config="/etc/ssh/sshd_config"
+
+  # 检查是否存在 AllowUsers 行
+  if grep -qE "^AllowUsers\s" "$sshd_config"; then
+    # 检查用户是否已在白名单中
+    if ! grep -qE "^AllowUsers\s.*\b${username}\b" "$sshd_config"; then
+      # 追加用户到现有 AllowUsers 行
+      sed -i "s/^\(AllowUsers\s.*\)/\1 ${username}/" "$sshd_config"
+      say "${GREEN}[完成] 已将用户 $username 添加到 SSH AllowUsers 白名单${RESET}" \
+          "${GREEN}[Done] Added user $username to SSH AllowUsers whitelist${RESET}"
+      systemctl reload sshd 2>/dev/null || service sshd reload 2>/dev/null || true
+    fi
+  fi
+}
+
+# 从 AllowUsers 白名单移除用户（如果白名单存在）
+remove_user_from_allowusers() {
+  local username="$1"
+  local sshd_config="/etc/ssh/sshd_config"
+
+  if grep -qE "^AllowUsers\s.*\b${username}\b" "$sshd_config"; then
+    # 移除用户，处理多余空格
+    sed -i -E "s/^(AllowUsers\s.*)\s+${username}\b/\1/" "$sshd_config"
+    sed -i -E "s/^(AllowUsers)\s+${username}\s+/\1 /" "$sshd_config"
+    sed -i -E "s/^(AllowUsers)\s+${username}$/\1/" "$sshd_config"
+    # 清理多余空格
+    sed -i -E "s/^(AllowUsers)\s+$/\1/" "$sshd_config"
+    sed -i -E "s/\s{2,}/ /g" "$sshd_config"
+    say "${GREEN}[完成] 已将用户 $username 从 SSH AllowUsers 白名单移除${RESET}" \
+        "${GREEN}[Done] Removed user $username from SSH AllowUsers whitelist${RESET}"
+    systemctl reload sshd 2>/dev/null || service sshd reload 2>/dev/null || true
+  fi
+}
+
 create_user_secure() {
   say "${GREEN}== 新增安全 SSH 用户（支持仅密钥登录） ==${RESET}" \
       "${GREEN}== Create secure SSH user (key-only or password+key) ==${RESET}"
@@ -1411,6 +1448,9 @@ create_user_secure() {
         "${GREEN}[Done] Created user with password login: $username${RESET}"
   fi
 
+  # 处理 AllowUsers 白名单
+  add_user_to_allowusers "$username"
+
   echo
   say "用户信息摘要：" "User summary:"
   id "$username"
@@ -1478,6 +1518,8 @@ delete_user_safe() {
         userdel "$username" && del_success=true || del_success=false
       fi
       if [ "$del_success" = "true" ]; then
+        # 从 AllowUsers 白名单移除
+        remove_user_from_allowusers "$username"
         say "${GREEN}[完成] 用户 $username 已删除。${RESET}" \
             "${GREEN}[Done] User $username has been deleted.${RESET}"
       else
