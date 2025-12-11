@@ -1317,6 +1317,7 @@ create_user_secure() {
   # 准备 .ssh 目录
   local home_dir auth_file
   home_dir=$(getent passwd "$username" | cut -d: -f6)
+  chmod 755 "$home_dir"
   install -d -m 700 -o "$username" -g "$username" "$home_dir/.ssh"
   auth_file="$home_dir/.ssh/authorized_keys"
   touch "$auth_file"
@@ -1375,6 +1376,7 @@ create_user_secure() {
       esac
       key_path="$home_dir/.ssh/id_${key_type}"
       sudo -u "$username" ssh-keygen -t "$key_type" -f "$key_path" -N ""
+      cat "${key_path}.pub" >> "$auth_file"
       say "${GREEN}[完成] 已为用户生成密钥对：${RESET}" \
           "${GREEN}[Done] Generated key pair for user:${RESET}"
       echo " Private key: $key_path"
